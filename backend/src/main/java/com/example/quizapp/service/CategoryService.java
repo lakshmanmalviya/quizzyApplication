@@ -1,0 +1,106 @@
+package com.example.quizapp.service;
+
+import java.time.LocalDateTime;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.stereotype.Service;
+
+import com.example.quizapp.dto.CategoryRequest;
+import com.example.quizapp.dto.PageResponse;
+import com.example.quizapp.dto.UnifiedResponse;
+import com.example.quizapp.entity.Category;
+import com.example.quizapp.entity.User;
+import com.example.quizapp.exception.ResourceAlreadyExistsException;
+import com.example.quizapp.exception.ResourceNotFoundException;
+import com.example.quizapp.repository.CategoryRepository;
+import com.example.quizapp.util.CommonHelper;
+import com.example.quizapp.util.UserHelper;
+
+@Service
+public class CategoryService {
+
+	@Autowired
+	private CategoryRepository categoryRepository;
+
+	@Autowired
+	CommonHelper commonHelper;
+
+	@Autowired
+	UserHelper userHelper;
+
+	public UnifiedResponse<Category> createCategory(CategoryRequest request) {
+
+		if (categoryRepository.existsByName(request.getName()))
+			throwException("Category already exists. Please try with other name.");
+
+		Category category = new Category();
+		category.setName(request.getName());
+		category.setDescription(request.getDescription());
+		category.setCategoryPic(request.getCategoryPic());
+		category.setCreator(getUser());
+		category.setIsDeleted(false);
+		return commonHelper.returnUnifiedCREATED("Category Created Successfully", categoryRepository.save(category));
+	}
+
+	public UnifiedResponse<Long> deleteCategoryById(Long categoryId) {
+		if (!categoryRepository.existsById(categoryId)) {
+			throwException(categoryId);
+		}
+		Category category = getCategoryById(categoryId);
+		category.setIsDeleted(true);
+		categoryRepository.save(category);
+		return commonHelper.returnUnifiedOK("Deleted", categoryId);
+	}
+
+	public UnifiedResponse<Category> updateCategoryById(Long categoryId, CategoryRequest request) {
+		Category category = categoryRepository.findById(categoryId).orElseThrow(() -> throwException(categoryId));
+		Category checkAlreadyWithThisName = categoryRepository.findByName(request.getName());
+
+		if (checkAlreadyWithThisName != null && checkAlreadyWithThisName.getId() != category.getId())
+			throwException("Please change the name because the category with this name already exists");
+
+		category.setName(request.getName());
+		category.setDescription(request.getDescription());
+		category.setCategoryPic(request.getCategoryPic());
+		return commonHelper.returnUnifiedOK("Updated", categoryRepository.save(category));
+	}
+
+	public Category getCategoryById(Long categoryId) {
+		return categoryRepository.findById(categoryId).orElseThrow(() -> throwException(categoryId));
+	}
+
+	public ResourceNotFoundException throwException(Long id) {
+		throw new ResourceNotFoundException("Category not found with the id " + id);
+	}
+
+	public ResourceAlreadyExistsException throwException(String message) {
+		throw new ResourceAlreadyExistsException(message);
+	}
+
+	public User getUser() {
+		return userHelper.getUser();
+	}
+
+	public UnifiedResponse<PageResponse<Category>> filterCategories(String query, String startDate, String endDate,
+			Long creatorId, String sort, Pageable pageable) {
+
+		LocalDateTime[] dates = { null, null };
+
+		if (startDate != null && endDate != null) {
+			dates = commonHelper.parseDateRange(startDate, endDate);
+		}
+
+		if (sort != null) {
+			Sort sorting = commonHelper.parseSortString(sort);
+			pageable = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), sorting);
+		}
+
+		Page<Category> categories = categoryRepository.findCategoriesByFilters(creatorId, dates[0], dates[1], query,
+				pageable);
+		return commonHelper.getPageResponse(categories);
+	}
+}
